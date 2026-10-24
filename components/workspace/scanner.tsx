@@ -1,0 +1,290 @@
+"use client";
+
+import { useRef, useState, type FormEvent } from "react";
+import { Scanner } from "@yudiel/react-qr-scanner";
+import { QrCode, ScanLine, RefreshCw, Loader2, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { supabase } from "@/lib/client";
+import { useRouter } from "next/navigation";
+
+const QR_HOSTS = new Set(["flexed.in", "www.flexed.in"]);
+const CODE_REGEX = /^[A-Z]{5}$/;
+
+type Step = "scan" | "checking" | "form" | "submitting" | "success";
+
+function extractCode(value: string): string | null {
+    try {
+        const url = new URL(value.trim());
+        if (url.protocol !== "https:" || !QR_HOSTS.has(url.hostname) || url.search || url.hash) return null;
+        const segments = url.pathname.split("/").filter(Boolean);
+        if (segments.length !== 1) return null;
+        const code = segments[0].toUpperCase();
+        return CODE_REGEX.test(code) ? code.toLowerCase() : null;
+    } catch {
+        return null;
+    }
+}
+
+export default function ScanPage() {
+    const [step, setStep] = useState<Step>("scan");
+    const [error, setError] = useState("");
+    const [code, setCode] = useState<string | null>(null);
+    const [cameraEnabled, setCameraEnabled] = useState(true);
+    const [form, setForm] = useState({ name: "", email: "", phone: "", url: "" });
+
+    const scanLock = useRef(false);
+    const requestId = useRef(0);
+    const submitLock = useRef(false);
+    const router = useRouter();
+
+    function cancelCamera() {
+        requestId.current += 1;
+        scanLock.current = true;
+        setCameraEnabled(false);
+        setStep("scan");
+        setError("");
+        setCode(null);
+    }
+
+    function startCamera() {
+        scanLock.current = false;
+        setCameraEnabled(true);
+        setError("");
+        setCode(null);
+        setStep("scan");
+    }
+
+    const checkCode = async (value: string) => {
+        const id = ++requestId.current;
+        setStep("checking");
+        setError("");
+        try {
+            const { data, error } = await supabase
+                .from("touchpoints")
+                .select("code, status")
+                .eq("code", value)
+                .eq('status', 'inactive')
+                .maybeSingle();
+            if (id !== requestId.current) return;
+            if (error) throw error;
+            if (!data) {
+                throw new Error("Touchpoint not found.");
+            }
+            if (data.status !== "inactive") {
+                throw new Error("This Touchpoint is already claimed or unavailable.");
+            }
+            setCode(data.code);
+            setStep("form");
+        } catch (err) {
+            if (id !== requestId.current) return;
+            setError(err instanceof Error ? err.message : "Unable to verify Touchpoint.");
+            setStep("scan");
+        }
+    }
+
+    function handleScan(results: { rawValue: string }[]) {
+        if (scanLock.current || !results.length) return;
+        scanLock.current = true;
+        const extracted = extractCode(results[0].rawValue);
+        if (!extracted) {
+            setError("Invalid Touchpoint code. Scan a valid Flexed Touchpoint code.");
+            return;
+        }
+        setCameraEnabled(false);
+        void checkCode(extracted);
+    }
+
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        if (!code || submitLock.current) return;
+        submitLock.current = true;
+        setStep("submitting");
+        setError("");
+        try {
+            const { data: { user }, error: authError } = await supabase.auth.getUser();
+            if (authError || !user) {
+                throw new Error("Please sign in to activate this Touchpoint.");
+            }
+            const mapsUrl = form.url.trim();
+            const hostname = new URL(mapsUrl).hostname;
+            if (!["maps.app.goo.gl", "maps.google.com", "www.google.com", "google.com"].includes(hostname) || !mapsUrl.startsWith("https://")) {
+                throw new Error("Invalid Google Maps URL");
+            }
+            const response = await fetch("https://productmate.com/api/v1/google-review-link", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ maps_url: mapsUrl }),
+                signal: AbortSignal.timeout(10000)
+            });
+            if (!response.ok) {
+                throw new Error("Failed to generate Google review link.");
+            }
+            const result = await response.json();
+            const { place_id, review_url } = result;
+            if (typeof place_id !== "string" || typeof review_url !== "string") {
+                throw new Error("Invalid response from Productmate.");
+            }
+            const reviewUrl = new URL(review_url);
+            if (reviewUrl.origin !== "https://search.google.com" || reviewUrl.pathname !== "/local/writereview" || reviewUrl.searchParams.get("placeid") !== place_id) {
+                throw new Error("Invalid Google review URL.");
+            }
+            const review = reviewUrl.href;
+            const { data, error } = await supabase.rpc(
+                "activate_touchpoint",
+                {
+                    p_code: code,
+                    p_name: form.name.trim(),
+                    p_email: form.email.trim(),
+                    p_phone: form.phone.trim(),
+                    p_url: mapsUrl,
+                    p_review_url: review
+                }
+            );
+            if (error) throw error;
+            if (!data?.length) {
+                throw new Error("Touchpoint could not be activated.");
+            }
+            setStep("success");
+        } catch (err) {
+            setError(err instanceof Error ? err.message : "Failed to activate Touchpoint.");
+            setStep("form");
+        } finally {
+            submitLock.current = false;
+        }
+    };
+
+    function resetScanner() {
+        if (submitLock.current) return;
+        requestId.current += 1;
+        scanLock.current = false;
+        setCameraEnabled(true);
+        setStep("scan");
+        setError("");
+        setCode(null);
+        setForm({ name: "", email: "", phone: "", url: "" });
+        router.push('/workspace');
+    }
+
+    return (
+        <main className="mx-auto flex w-full items-start justify-center p-4 sm:px-6">
+            <div className={`w-full ${step === "form" || step === "submitting" ? "max-w-3xl" : "max-w-sm"}`}>
+                <div className="mb-4 space-y-2 text-center">
+                    <div className="mx-auto flex size-11 items-center justify-center rounded-xl border bg-muted">
+                        <QrCode className="size-5" />
+                    </div>
+                    <h1 className="text-2xl font-semibold tracking-tight">{step === "form" || step === "submitting" ? "Register Business" : step === "success" ? "Activation Complete" : "Scan Touchpoint"}</h1>
+                    <p className="text-sm text-muted-foreground">{step === "form" || step === "submitting" ? "Enter your business details to activate this Touchpoint." : step === "success" ? "Your Touchpoint has been activated successfully." : "Scan your Flexed Touchpoint to get started."}</p>
+                </div>
+
+                {(step === "scan" || step === "checking") && (
+                    <div className="rounded-xl border bg-card p-3">
+                        <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-black">
+                            {step === "scan" && cameraEnabled && !error && (
+                                <>
+                                    <Scanner constraints={{ facingMode: "environment" }} formats={["qr_code"]} onScan={handleScan} onError={(err) => { scanLock.current = true; setError("Camera unavailable. Check camera permissions."); }} components={{ finder: false }} styles={{ container: { width: "100%", height: "100%" }, video: { width: "100%", height: "100%", objectFit: "cover" } }} />
+                                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                                        <div className="relative aspect-square w-[72%]">
+                                            <div className="absolute left-0 top-0 size-9 rounded-tl-xl border-l-4 border-t-4 border-white" />
+                                            <div className="absolute right-0 top-0 size-9 rounded-tr-xl border-r-4 border-t-4 border-white" />
+                                            <div className="absolute bottom-0 left-0 size-9 rounded-bl-xl border-b-4 border-l-4 border-white" />
+                                            <div className="absolute bottom-0 right-0 size-9 rounded-br-xl border-b-4 border-r-4 border-white" />
+                                            <div className="absolute inset-x-3 top-1/2 h-px animate-pulse bg-white/80" />
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
+                            {step === "checking" && (
+                                <div className="flex h-full flex-col items-center justify-center gap-3 text-white">
+                                    <Loader2 className="size-8 animate-spin" />
+                                    <p className="text-sm">Verifying Touchpoint...</p>
+                                </div>
+                            )}
+
+                            {step === "scan" && !cameraEnabled && !error && (
+                                <div className="flex h-full flex-col items-center justify-center gap-4 text-white">
+                                    <QrCode className="size-10 text-white/60" />
+                                    <p className="text-sm text-white/70">Camera is turned off</p>
+                                    <Button variant="secondary" size="sm" onClick={startCamera}>Start Camera</Button>
+                                </div>
+                            )}
+
+                            {step === "scan" && error && (
+                                <div className="flex h-full flex-col items-center justify-center gap-4 p-5 text-center text-white">
+                                    <QrCode className="size-9" />
+                                    <p className="text-sm">{error}</p>
+                                    <Button variant="secondary" size="sm" onClick={startCamera}><RefreshCw className="size-4" />Try Again</Button>
+                                </div>
+                            )}
+                        </div>
+
+                        {step === "scan" && cameraEnabled && !error && (
+                            <Button type="button" variant="outline" className="mt-3 w-full" onClick={cancelCamera}>Cancel Camera</Button>
+                        )}
+
+                        {step === "scan" && !cameraEnabled && !error && (
+                            <Button type="button" variant="outline" className="mt-3 w-full" onClick={startCamera}>Enable Camera</Button>
+                        )}
+                        {step === "scan" && cameraEnabled && !error && (
+                            <div className="mt-3 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                                <ScanLine className="size-4" />
+                                Position Touchpoint inside the frame
+                            </div>
+                        )}
+                    </div>
+                )}
+                {(step === "form" || step === "submitting") && (
+                    <div className="rounded-xl border bg-card p-5 sm:p-6">
+                        <div className="mb-6 flex items-center justify-between border-b pb-4">
+                            <div className="flex items-center gap-3">
+                                <QrCode className="size-5" />
+                                <span className="font-mono text-sm font-medium">{code?.toUpperCase()}</span>
+                            </div>
+                            <span className="flex items-center gap-1 text-xs font-medium text-emerald-600">
+                                <CheckCircle2 className="size-4" />
+                                Available
+                            </span>
+                        </div>
+
+                        <form onSubmit={handleSubmit} className="space-y-5">
+                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                <div className="space-y-2">
+                                    <label htmlFor="name" className="text-sm font-medium">Business Name</label>
+                                    <Input id="name" placeholder="Flexed" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={100} required disabled={step === "submitting"} />
+                                </div>
+                                <div className="space-y-2">
+                                    <label htmlFor="url" className="text-sm font-medium">Google Maps URL</label>
+                                    <Input id="url" type="url" placeholder="https://maps.google.com/..." value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} maxLength={2048} required disabled={step === "submitting"} />
+                                </div>
+                                <div className="space-y-2">
+                                    <label htmlFor="email" className="text-sm font-medium">Business Email</label>
+                                    <Input id="email" type="email" placeholder="hello@flexed.in" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} maxLength={254} disabled={step === "submitting"} />
+                                </div>
+                                <div className="space-y-2">
+                                    <label htmlFor="phone" className="text-sm font-medium">Phone Number</label>
+                                    <Input id="phone" type="tel" placeholder="9000000000" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={10} disabled={step === "submitting"} />
+                                </div>
+                            </div>
+                            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+                            <div className="flex gap-3 border-t pt-5">
+                                <Button type="button" variant="outline" className="flex-1" onClick={resetScanner} disabled={step === "submitting"}>Back</Button>
+                                <Button type="submit" className="flex-1" disabled={step === "submitting"}>
+                                    {step === "submitting" ? <><Loader2 className="size-4 animate-spin" />Activating...</> : <>Activate</>}
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+                )}
+                {step === "success" && (
+                    <div className="flex flex-col items-center gap-4 rounded-xl border bg-card p-8 text-center">
+                        <CheckCircle2 className="size-12 text-emerald-600" />
+                        <h2 className="text-xl font-semibold">Touchpoint Activated</h2>
+                        <p className="text-sm text-muted-foreground">{form.name} has been successfully registered.</p>
+                        <Button variant="outline" onClick={resetScanner}>Go to Workspace</Button>
+                    </div>
+                )}
+            </div>
+        </main>
+    );
+}
