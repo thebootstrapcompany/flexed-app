@@ -8,17 +8,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, FieldDescription, FieldGroup, FieldLabel, FieldSeparator } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { supabase } from "@/lib/client"
+import { EyeIcon, EyeOffIcon } from "lucide-react"
+import { ThemeToggle } from "../shared/theme-toggle"
 
 export function SignupForm({ className, ...props }: ComponentProps<"div">) {
   const router = useRouter()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
+  const [showPass, setShowPass] = useState(false)
   const [loading, setLoading] = useState(false)
-  const [googleLoading, setGoogleLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+
+  const handleGuest = () => {
+    const time = new Date().getMilliseconds();
+    let mail = `guest${time}@example.com`;
+    console.log(`[Guest Signup] - Email: guest${time}@example.com, Password: Guest@1234`);
+    setName(`Guest ${time}`);
+    setEmail(mail.toLowerCase().trim());
+    setPassword("Guest@1234");
+  };
 
   const handleSignup = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -29,12 +39,12 @@ export function SignupForm({ className, ...props }: ComponentProps<"div">) {
       setError("Please enter your full name.")
       return
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.")
+    if (!email.trim()) {
+      setError("Please enter a valid email address.")
       return
     }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.")
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.")
       return
     }
     setLoading(true)
@@ -43,7 +53,9 @@ export function SignupForm({ className, ...props }: ComponentProps<"div">) {
         email: email.trim(),
         password,
         options: {
-          data: { full_name: name.trim() },
+          data: {
+            full_name: name.trim()
+          },
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       })
@@ -60,24 +72,13 @@ export function SignupForm({ className, ...props }: ComponentProps<"div">) {
     }
   }
 
-  // const handleGoogleSignup = async () => {
-  //   if (googleLoading) return
-  //   setError("")
-  //   setGoogleLoading(true)
-  //   try {
-  //     const { error: authError } = await supabase.auth.signInWithOAuth({
-  //       provider: "google",
-  //       options: { redirectTo: `${window.location.origin}/auth/callback` },
-  //     })
-  //     if (authError) throw authError
-  //   } catch (err) {
-  //     setError(err instanceof Error ? err.message : "Google authentication failed.")
-  //     setGoogleLoading(false)
-  //   }
-  // }
-
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
+      <header className="fixed top-0 right-0 z-40 flex h-19 shrink-0 items-center px-4 md:px-6">
+        <div className="flex items-center rounded-full border bg-card/90 shadow-sm backdrop-blur-md">
+          <ThemeToggle />
+        </div>
+      </header>
       <Card>
         <CardHeader className="text-center">
           <CardTitle className="text-xl">Create your account</CardTitle>
@@ -87,40 +88,32 @@ export function SignupForm({ className, ...props }: ComponentProps<"div">) {
           <form onSubmit={handleSignup}>
             <FieldGroup className="gap-4">
               <Field>
-                <FieldLabel htmlFor="name">Full Name</FieldLabel>
-                <Input id="name" type="text" placeholder="John Doe" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} required />
+                <FieldLabel htmlFor="name">Name</FieldLabel>
+                <Input id="name" type="text" placeholder="Jane Smith" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} max={100} required />
               </Field>
               <Field>
                 <FieldLabel htmlFor="email">Email</FieldLabel>
-                <Input id="email" type="email" placeholder="m@example.com" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                <Input id="email" type="email" placeholder="jane@flexed.in" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} max={256} required />
               </Field>
               <Field>
-                <div className="grid grid-cols-2 gap-4">
-                  <Field>
-                    <FieldLabel htmlFor="password">Password</FieldLabel>
-                    <Input id="password" type="password" autoComplete="new-password" placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="confirm-password">Confirm Password</FieldLabel>
-                    <Input id="confirm-password" type="password" autoComplete="new-password" placeholder="••••••••" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required />
-                  </Field>
+                <FieldLabel htmlFor="password">Password</FieldLabel>
+                <div className="relative">
+                  <Input id="password" type={showPass ? "text" : "password"} placeholder="••••••••" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required className="pr-10" />
+                  <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label={showPass ? "Hide password" : "Show password"}>{showPass ? <EyeIcon className="h-4 w-4" /> : <EyeOffIcon className="h-4 w-4" />}</button>
                 </div>
-                <FieldDescription>Must be at least 8 characters long.</FieldDescription>
               </Field>
               {error && <FieldDescription role="alert" className="text-destructive">{error}</FieldDescription>}
               {success && <FieldDescription role="status" className="text-green-600">{success}</FieldDescription>}
               <Field>
-                <Button type="submit" disabled={loading || googleLoading}>{loading ? "Creating account..." : "Create Account"}</Button>
+                {process.env.NODE_ENV === "development" && (
+                  <Button variant={"outline"} onClick={handleGuest}>
+                    <p className="text-foreground">
+                      Guest credentials (dev only)
+                    </p>
+                  </Button>
+                )}
+                <Button type="submit" disabled={loading}>{loading ? "Creating account..." : "Continue"}</Button>
               </Field>
-              {/* <FieldSeparator className="my-1 *:data-[slot=field-separator-content]:bg-card">Or continue with</FieldSeparator>
-              <Field>
-                <Button variant="outline" type="button" disabled={loading || googleLoading} onClick={handleGoogleSignup}>
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" fill="currentColor" />
-                  </svg>
-                  {googleLoading ? "Connecting..." : "Continue with Google"}
-                </Button>
-              </Field> */}
               <Field>
                 <FieldDescription className="text-center">Already have an account? <a href="/login">Log in</a></FieldDescription>
               </Field>

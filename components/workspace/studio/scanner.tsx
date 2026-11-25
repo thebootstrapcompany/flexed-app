@@ -9,7 +9,7 @@ import { supabase } from "@/lib/client";
 import { useRouter } from "next/navigation";
 
 const QR_HOSTS = new Set(["flexed.in", "www.flexed.in"]);
-const CODE_REGEX = /^[A-Z]{5}$/;
+// const CODE_REGEX = /^[A-Z0-9]{5, 6}$/;
 
 type Step = "scan" | "checking" | "form" | "submitting" | "success";
 
@@ -20,23 +20,23 @@ function extractCode(value: string): string | null {
         const segments = url.pathname.split("/").filter(Boolean);
         if (segments.length !== 1) return null;
         const code = segments[0].toUpperCase();
-        return CODE_REGEX.test(code) ? code.toLowerCase() : null;
+        // return CODE_REGEX.test(code) ? code.toLowerCase() : null;
+        return code.toLowerCase() ?? null;
     } catch {
         return null;
     }
 }
 
-export default function ScanPage() {
+export default function ScanPage({ businessId }: { businessId: string }) {
     const [step, setStep] = useState<Step>("scan");
     const [error, setError] = useState("");
     const [code, setCode] = useState<string | null>(null);
+    const [variantType, setVariantType] = useState('');
     const [cameraEnabled, setCameraEnabled] = useState(true);
-    const [form, setForm] = useState({ name: "", email: "", phone: "", url: "" });
-
+    const [form, setForm] = useState({ name: "", email: "", phone: "" });
     const scanLock = useRef(false);
     const requestId = useRef(0);
     const submitLock = useRef(false);
-    const router = useRouter();
 
     function cancelCamera() {
         requestId.current += 1;
@@ -60,40 +60,37 @@ export default function ScanPage() {
         setStep("checking");
         setError("");
         try {
-            const { data, error } = await supabase
-                .from("touchpoints")
-                .select("code, status")
-                .eq("code", value)
-                .eq('status', 'inactive')
-                .maybeSingle();
+            const { data, error } = await supabase.rpc("check_touchpoint_code", {
+                p_code: value.trim().toLowerCase(),
+            });
             if (id !== requestId.current) return;
             if (error) throw error;
-            if (!data) {
-                throw new Error("Touchpoint not found.");
+            if (!data?.success) {
+                throw new Error(data?.message ?? "Unable to verify touchpoint.");
             }
-            if (data.status !== "inactive") {
-                throw new Error("This Touchpoint is already claimed or unavailable.");
-            }
-            setCode(data.code);
+            console.log(data)
+            setCode(data.data.code);
+            setVariantType(data.data.variant_type);
             setStep("form");
         } catch (err) {
             if (id !== requestId.current) return;
-            setError(err instanceof Error ? err.message : "Unable to verify Touchpoint.");
+            setError(err instanceof Error ? err.message : "Unable to verify touchpoint. Please try again.");
             setStep("scan");
         }
-    }
+    };
 
-    function handleScan(results: { rawValue: string }[]) {
+    const handleScan = (results: { rawValue: string }[]) => {
         if (scanLock.current || !results.length) return;
         scanLock.current = true;
         const extracted = extractCode(results[0].rawValue);
+        console.log(extracted)
         if (!extracted) {
             setError("Invalid Touchpoint code. Scan a valid Flexed Touchpoint code.");
             return;
         }
         setCameraEnabled(false);
         void checkCode(extracted);
-    }
+    };
 
     const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -106,45 +103,20 @@ export default function ScanPage() {
             if (authError || !user) {
                 throw new Error("Please sign in to activate this Touchpoint.");
             }
-            const mapsUrl = form.url.trim();
-            const hostname = new URL(mapsUrl).hostname;
-            if (!["maps.app.goo.gl", "maps.google.com", "www.google.com", "google.com"].includes(hostname) || !mapsUrl.startsWith("https://")) {
-                throw new Error("Invalid Google Maps URL");
-            }
-            const response = await fetch("https://productmate.com/api/v1/google-review-link", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ maps_url: mapsUrl }),
-                signal: AbortSignal.timeout(10000)
-            });
-            if (!response.ok) {
-                throw new Error("Failed to generate Google review link.");
-            }
-            const result = await response.json();
-            const { place_id, review_url } = result;
-            if (typeof place_id !== "string" || typeof review_url !== "string") {
-                throw new Error("Invalid response from Productmate.");
-            }
-            const reviewUrl = new URL(review_url);
-            if (reviewUrl.origin !== "https://search.google.com" || reviewUrl.pathname !== "/local/writereview" || reviewUrl.searchParams.get("placeid") !== place_id) {
-                throw new Error("Invalid Google review URL.");
-            }
-            const review = reviewUrl.href;
-            const { data, error } = await supabase.rpc(
-                "activate_touchpoint",
-                {
-                    p_code: code,
-                    p_name: form.name.trim(),
-                    p_email: form.email.trim(),
-                    p_phone: form.phone.trim(),
-                    p_url: mapsUrl,
-                    p_review_url: review
+            const { name, email, phone } = form;
+            if (!name.trim()) throw new Error("Business Name is required.");
+            const response = await supabase.from("touchpoints").insert({
+                code: code,
+                user_id: user.id,
+                business_id: businessId,
+                status: "active",
+                metadata: {
+                    name: name.trim(),
+                    email: email.trim(),
+                    phone: phone.trim(),
                 }
-            );
+            });
             if (error) throw error;
-            if (!data?.length) {
-                throw new Error("Touchpoint could not be activated.");
-            }
             setStep("success");
         } catch (err) {
             setError(err instanceof Error ? err.message : "Failed to activate Touchpoint.");
@@ -155,28 +127,22 @@ export default function ScanPage() {
     };
 
     function resetScanner() {
-        if (submitLock.current) return;
         requestId.current += 1;
         scanLock.current = false;
         setCameraEnabled(true);
         setStep("scan");
         setError("");
         setCode(null);
-        setForm({ name: "", email: "", phone: "", url: "" });
-        router.push('/workspace');
+        setForm({ name: "", email: "", phone: "" });
     }
 
     return (
         <main className="mx-auto flex w-full items-start justify-center p-4 sm:px-6">
             <div className={`w-full ${step === "form" || step === "submitting" ? "max-w-3xl" : "max-w-sm"}`}>
                 <div className="mb-4 space-y-2 text-center">
-                    <div className="mx-auto flex size-11 items-center justify-center rounded-xl border bg-muted">
-                        <QrCode className="size-5" />
-                    </div>
-                    <h1 className="text-2xl font-semibold tracking-tight">{step === "form" || step === "submitting" ? "Register Business" : step === "success" ? "Activation Complete" : "Scan Touchpoint"}</h1>
-                    <p className="text-sm text-muted-foreground">{step === "form" || step === "submitting" ? "Enter your business details to activate this Touchpoint." : step === "success" ? "Your Touchpoint has been activated successfully." : "Scan your Flexed Touchpoint to get started."}</p>
+                    <h1 className="text-lg font-semibold tracking-tight">{step === "form" || step === "submitting" ? "Register Business" : step === "success" ? "Activation Complete" : "Scan Touchpoint"}</h1>
+                    <p className="text-xs text-muted-foreground">{step === "form" || step === "submitting" ? "Enter your business details to activate this Touchpoint." : step === "success" ? "Your Touchpoint has been activated successfully." : "Scan your Flexed Touchpoint to get started."}</p>
                 </div>
-
                 {(step === "scan" || step === "checking") && (
                     <div className="rounded-xl border bg-card p-3">
                         <div className="relative aspect-square w-full overflow-hidden rounded-lg bg-black">
@@ -194,22 +160,18 @@ export default function ScanPage() {
                                     </div>
                                 </>
                             )}
-
                             {step === "checking" && (
                                 <div className="flex h-full flex-col items-center justify-center gap-3 text-white">
                                     <Loader2 className="size-8 animate-spin" />
                                     <p className="text-sm">Verifying Touchpoint...</p>
                                 </div>
                             )}
-
                             {step === "scan" && !cameraEnabled && !error && (
                                 <div className="flex h-full flex-col items-center justify-center gap-4 text-white">
                                     <QrCode className="size-10 text-white/60" />
                                     <p className="text-sm text-white/70">Camera is turned off</p>
-                                    <Button variant="secondary" size="sm" onClick={startCamera}>Start Camera</Button>
                                 </div>
                             )}
-
                             {step === "scan" && error && (
                                 <div className="flex h-full flex-col items-center justify-center gap-4 p-5 text-center text-white">
                                     <QrCode className="size-9" />
@@ -218,12 +180,10 @@ export default function ScanPage() {
                                 </div>
                             )}
                         </div>
-
                         {step === "scan" && cameraEnabled && !error && (
                             <Button type="button" variant="outline" className="mt-3 w-full" onClick={cancelCamera}>Cancel Camera</Button>
                         )}
-
-                        {step === "scan" && !cameraEnabled && !error && (
+                        {step === "scan" && cameraEnabled && !error && (
                             <Button type="button" variant="outline" className="mt-3 w-full" onClick={startCamera}>Enable Camera</Button>
                         )}
                         {step === "scan" && cameraEnabled && !error && (
@@ -246,24 +206,15 @@ export default function ScanPage() {
                                 Available
                             </span>
                         </div>
-
                         <form onSubmit={handleSubmit} className="space-y-5">
                             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                                 <div className="space-y-2">
-                                    <label htmlFor="name" className="text-sm font-medium">Business Name</label>
+                                    <label htmlFor="name" className="text-sm font-medium mb-2">Touchpoint Name</label>
                                     <Input id="name" placeholder="Flexed" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={100} required disabled={step === "submitting"} />
                                 </div>
                                 <div className="space-y-2">
-                                    <label htmlFor="url" className="text-sm font-medium">Google Maps URL</label>
-                                    <Input id="url" type="url" placeholder="https://maps.google.com/..." value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} maxLength={2048} required disabled={step === "submitting"} />
-                                </div>
-                                <div className="space-y-2">
-                                    <label htmlFor="email" className="text-sm font-medium">Business Email</label>
-                                    <Input id="email" type="email" placeholder="hello@flexed.in" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} maxLength={254} disabled={step === "submitting"} />
-                                </div>
-                                <div className="space-y-2">
-                                    <label htmlFor="phone" className="text-sm font-medium">Phone Number</label>
-                                    <Input id="phone" type="tel" placeholder="9000000000" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} maxLength={10} disabled={step === "submitting"} />
+                                    <label htmlFor="email" className="text-sm font-medium">Touchpoint Type</label>
+                                    <Input placeholder="card" value={variantType} disabled />
                                 </div>
                             </div>
                             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}

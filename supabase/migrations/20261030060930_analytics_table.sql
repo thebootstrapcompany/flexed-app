@@ -1,0 +1,97 @@
+-- -- Remove the function to avoid overload conflicts
+-- DROP FUNCTION IF EXISTS public.insert_business(text, text, text, text, text);
+
+-- CREATE OR REPLACE FUNCTION public.insert_business(
+--     p_name       text,
+--     p_username       text,
+--     p_email      text DEFAULT NULL,
+--     p_phone      text DEFAULT NULL,
+--     p_url        text,
+--     p_review_url text DEFAULT NULL
+-- )
+-- RETURNS TABLE (
+--     id          uuid,
+--     code        text,
+--     name        text,
+--     username        text,
+--     email       text,
+--     phone       text,
+--     links       jsonb,
+--     metadata    jsonb,
+--     created_at  timestamptz,
+--     updated_at  timestamptz
+-- )
+-- LANGUAGE plpgsql
+-- SECURITY DEFINER
+-- SET search_path = ''
+-- AS $$
+-- DECLARE
+--     v_user_id    uuid;
+-- BEGIN
+--     v_user_id := (SELECT auth.uid());
+--     IF v_user_id IS NULL THEN
+--         RAISE EXCEPTION 'Please sign in to create a business.';
+--     END IF;
+
+--     IF NULLIF(TRIM(p_name), '') IS NULL THEN
+--         RAISE EXCEPTION 'Business name is required.';
+--     END IF;
+
+--     IF NULLIF(TRIM(p_username), '') IS NULL THEN
+--         RAISE EXCEPTION 'Username is required.';
+--     END IF;
+
+--     INSERT INTO public.businesses (
+--         code,
+--         user_id,
+--         name,
+--         username,
+--         email,
+--         phone,
+--         links,
+--         metadata
+--     )
+--     VALUES (
+--         TRIM(p_username),
+--         v_user_id,
+--         TRIM(p_name),
+--         TRIM(p_username),
+--         NULLIF(TRIM(p_email), ''),
+--         NULLIF(TRIM(p_phone), ''),
+--         jsonb_build_object(
+--             'maps', COALESCE(TRIM(p_url), ''),
+--             'reviews', COALESCE(p_review_url, '')
+--         ),
+--         jsonb_build_object(
+--             'desc', '',
+--             'is_verified', false,
+--             'assets', jsonb_build_object(
+--                 'bg_path', '',
+--                 'hero_path', ''
+--             ),
+--             'automation', jsonb_build_object(
+--                 'tone', 'Balanced',
+--                 'language', 'English',
+--                 'length', 'Medium',
+--                 'instructions', ''
+--             )
+--         )
+--     )
+--     RETURNING id, code, name, username, email, phone, links, metadata, created_at, updated_at;
+
+--     RETURN QUERY
+--     SELECT id, code, name, username, email, phone, links, metadata, created_at, updated_at
+--     FROM public.businesses
+--     WHERE code = TRIM(p_username)
+--       AND user_id = v_user_id
+--     ORDER BY created_at DESC
+--     LIMIT 1;
+-- END;
+-- $$;
+
+-- -- Restrict function execution
+-- REVOKE ALL ON FUNCTION public.insert_business(text, text, text, text, text, text) FROM PUBLIC;
+
+-- REVOKE ALL ON FUNCTION public.insert_business(text, text, text, text, text, text) FROM anon;
+
+-- GRANT EXECUTE ON FUNCTION public.insert_business(text, text, text, text, text, text) TO authenticated;

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline | Flexed</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        background: #09090b;
+        color: #fafafa;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 24px;
+        text-align: center;
+      }
+      .wrap { max-width: 24rem; width: 100%; }
+      .logo { margin-bottom: 24px; }
+      h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; }
+      p { color: #a1a1aa; margin-bottom: 32px; line-height: 1.5; }
+      button {
+        background: #fafafa;
+        color: #09090b;
+        font-weight: 600;
+        padding: 8px 24px;
+        border: none;
+        border-radius: 9999px;
+        cursor: pointer;
+      }
+      button:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="logo">
+            <svg width="48" height="48" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="512" height="512" rx="92" fill="#18181b"/>
+                <g fill="#fafafa">
+                    <rect x="196" y="123" width="53" height="266"/>
+                    <rect x="196" y="123" width="176" height="53"/>
+                    <rect x="196" y="257" width="138" height="53"/>
+                </g>
+            </svg>
+        </div>
+        <h1>You're offline</h1>
+        <p>Please check your internet connection to continue managing your QR codes.</p>
+        <button onclick="window.location.reload()">Try again</button>
+    </div>
+</body>
+</html>

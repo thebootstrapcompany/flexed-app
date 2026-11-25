@@ -3,7 +3,7 @@ import { create } from "zustand";
 export interface Touchpoint {
     code: string;
     name: string | null;
-    slug: string | null;
+    username: string | null;
     links: Record<string, unknown>;
     createdAt: string;
 }

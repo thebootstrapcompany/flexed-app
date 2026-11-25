@@ -1,10 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "next-themes";
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Toaster } from "@/components/ui/sonner";
+import { SWRegister } from "@/components/shared/sw-register";
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-sans' });
 
@@ -32,12 +33,20 @@ export async function generateMetadata(): Promise<Metadata> {
       title: "Flexed",
     },
     icons: {
-      icon,
+      icon: [icon, "/icons/icon-192.png"],
       shortcut: icon,
-      apple: icon,
+      apple: "/icons/apple-touch-icon.png",
     },
+    manifest: "/manifest.webmanifest",
   };
 }
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
+  ],
+};
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
@@ -49,7 +58,8 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full flex flex-col">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <TooltipProvider>{children}</TooltipProvider>
-          <Toaster />
+          <Toaster position="bottom-center" />
+          <SWRegister />
         </ThemeProvider>
       </body>
     </html>

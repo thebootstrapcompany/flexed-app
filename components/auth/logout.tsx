@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/client";
+import { ThemeToggle } from "../shared/theme-toggle";
 
 export function Logout() {
     const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -37,6 +38,11 @@ export function Logout() {
 
     return (
         <main className="min-h-svh w-full bg-background text-foreground">
+            <header className="fixed top-0 right-0 z-40 flex h-19 shrink-0 items-center px-4 md:px-6">
+                <div className="flex items-center rounded-full border bg-card/90 shadow-sm backdrop-blur-md">
+                    <ThemeToggle />
+                </div>
+            </header>
             <div className="flex min-h-svh flex-col px-10">
                 <section className="flex flex-1 items-center justify-center py-16">
                     <div className="flex w-full max-w-md flex-col items-center text-center">

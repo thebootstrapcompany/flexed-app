@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
-const PROTECTED_ROUTES = ["/dashboard", "/workspace", "/analytics", "/account"]
+const PROTECTED_ROUTES = ["/", "/dashboard", "/workspace", "/analytics", "/account"]
 const AUTH_ROUTES = ["/login", "/signup"]
 const DEFAULT_AUTHENTICATED_ROUTE = "/workspace"
 const LOGIN_ROUTE = "/login"
@@ -48,7 +48,7 @@ export async function proxy(request: NextRequest) {
         return response
     }
 
-    if (isAuthenticated && isAuth) {
+    if (isAuthenticated && (isAuth || pathname === "/")) {
         return redirect(DEFAULT_AUTHENTICATED_ROUTE)
     }
 
@@ -63,11 +63,13 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
     matcher: [
+        "/",
         "/login",
         "/signup",
         "/dashboard/:path*",
         "/workspace/:path*",
         "/analytics/:path*",
+        "/store/:path*",
         "/account/:path*",
         "/settings/:path*",
     ],

@@ -1,6 +1,6 @@
 {
   "name": "flexed",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "author": {
     "name": "Nishant Chauhan",
@@ -24,7 +24,7 @@
     "cn": "^0.4.0",
     "groq-sdk": "^1.6.0",
     "lucide-react": "^1.55.0",
-    "next": "16.4.0",
+    "next": "16.4.6",
     "next-themes": "^0.4.6",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -41,8 +41,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
+    "supabase": "^3.3.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "packageManager": "pnpm@11.3.0"
+  "packageManager": "pnpm@12.21.0"
 }
